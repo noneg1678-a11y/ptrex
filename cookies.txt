@@ -1,0 +1,12 @@
+# Netscape HTTP Cookie File
+# https://curl.haxx.se/rfc/cookie_spec.html
+# This is a generated file! Do not edit.
+
+.porntrex.com	TRUE	/	FALSE	0	PHPSESSID	4b3b866145cc3c5681f2d328ef080e37
+.porntrex.com	TRUE	/	FALSE	1812937684	_ga	GA1.1.1335729154.1778377568
+porntrex.com	FALSE	/	FALSE	1778982428	confirmed	true
+.porntrex.com	TRUE	/	TRUE	1778464082	kt_ips	35.187.134.164%2C35.187.134.166
+.porntrex.com	TRUE	/	FALSE	1812937684	_ga_LSL6MX3ZB1	GS2.1.s1778377567$o1$g1$t1778377684$j57$l0$h0
+porntrex.com	FALSE	/	FALSE	1778982485	kt_tcookie	1
+porntrex.com	FALSE	/	FALSE	1778399285	___trx2	{"time":1778377685,"pageViews":1,"shown":false}
+porntrex.com	FALSE	/	FALSE	1778399285	___trx3	{"time":1778377685,"pageViews":1,"shown":false}
