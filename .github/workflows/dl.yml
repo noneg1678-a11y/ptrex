@@ -1,0 +1,219 @@
+---
+name: dl
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Enter video page URL (NOT the direct mp4 link)'
+        required: true
+      quality:
+        description: 'Video quality (480, 720, 1080, 1440, 2160, or best)'
+        required: false
+        default: 'best'
+        type: choice
+        options:
+          - 'best'
+          - '480'
+          - '720'
+          - '1080'
+          - '1440'
+          - '2160'
+
+jobs:
+  actions:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: true
+
+      - name: Install yt-dlp and aria2
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg aria2
+          pip install --quiet --upgrade yt-dlp
+
+      - name: Create unique folder for this run
+        id: folder
+        run: |
+          mkdir -p direct
+          
+          LAST_NUM=0
+          if [ -d "direct" ]; then
+            for dir in direct/run_*/; do
+              if [ -d "$dir" ]; then
+                NUM=$(echo "$dir" | grep -oE 'run_([0-9]+)' | grep -oE '[0-9]+')
+                if [ -n "$NUM" ] && [ "$NUM" -gt "$LAST_NUM" ] 2>/dev/null; then
+                  LAST_NUM=$NUM
+                fi
+              fi
+            done
+          fi
+          
+          NEW_NUM=$((LAST_NUM + 1))
+          RUN_FOLDER="direct/run_${NEW_NUM}"
+          mkdir -p "$RUN_FOLDER"
+          
+          echo "Created folder: $RUN_FOLDER"
+          echo "RUN_FOLDER=$RUN_FOLDER" >> $GITHUB_OUTPUT
+
+      - name: Parse URLs and quality
+        id: parse
+        run: |
+          URLS_INPUT="${{ github.event.inputs.url }}"
+          URLS=$(echo "$URLS_INPUT" | tr ',' ' ' | tr '\n' ' ' | tr -s ' ' | sed 's/^ *//;s/ *$//')
+          if [ -z "$URLS" ]; then
+            echo "No URLs provided." >&2
+            exit 1
+          fi
+          echo "$URLS" | tr ' ' '\n' > urls.txt
+          cat urls.txt
+          NUM=$(wc -l < urls.txt)
+          echo "NUM_URLS=$NUM" >> $GITHUB_OUTPUT
+          
+          QUALITY_INPUT="${{ github.event.inputs.quality }}"
+          
+          if [ "$QUALITY_INPUT" = "best" ]; then
+            QUALITY_FORMAT="best"
+          elif [ "$QUALITY_INPUT" = "480" ]; then
+            QUALITY_FORMAT="best[height<=480]/best"
+          elif [ "$QUALITY_INPUT" = "720" ]; then
+            QUALITY_FORMAT="best[height<=720]/best"
+          elif [ "$QUALITY_INPUT" = "1080" ]; then
+            QUALITY_FORMAT="best[height<=1080]/best"
+          elif [ "$QUALITY_INPUT" = "1440" ]; then
+            QUALITY_FORMAT="best[height<=1440]/best"
+          elif [ "$QUALITY_INPUT" = "2160" ]; then
+            QUALITY_FORMAT="best[height<=2160]/best"
+          else
+            QUALITY_FORMAT="best[height<=480]/best"
+          fi
+          
+          echo "QUALITY_FORMAT=$QUALITY_FORMAT" >> $GITHUB_OUTPUT
+
+      - name: Download and zip each file with cookies (Netscape format)
+        run: |
+          RUN_FOLDER="${{ steps.folder.outputs.RUN_FOLDER }}"
+          echo "Saving all files to: $RUN_FOLDER"
+          
+          index=0
+          QUALITY="${{ steps.parse.outputs.QUALITY_FORMAT }}"
+          echo "Downloading with quality format: $QUALITY"
+          
+          # چک کردن وجود فایل کوکی (فرمت Netscape)
+          if [ -f "cookies.txt" ]; then
+            echo "cookies.txt found (Netscape format), using it for authentication"
+            COOKIE_OPTION="--cookies cookies.txt"
+          else
+            echo "cookies.txt not found, downloading without cookies"
+            COOKIE_OPTION=""
+          fi
+          
+          while IFS= read -r url; do
+            index=$((index + 1))
+            echo "Processing URL $index: $url"
+            
+            # استخراج دامنه از URL برای رفرر
+            DOMAIN=$(echo "$url" | grep -oE 'https?://[^/]+')
+            echo "Using Referer: $DOMAIN"
+
+            DL_DIR="dl_$index"
+            mkdir -p "$DL_DIR"
+            cd "$DL_DIR"
+            
+            # دانلود با کوکی (فرمت Netscape) و رفرر پویا
+            yt-dlp \
+              --no-check-certificate \
+              --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36" \
+              --add-header "Referer: $DOMAIN" \
+              --add-header "Accept: video/webm,video/ogg,video/*;q=0.9,*/*;q=0.8" \
+              --add-header "Accept-Language: en-US,en;q=0.9" \
+              --add-header "Origin: $DOMAIN" \
+              --retries 10 \
+              --fragment-retries 10 \
+              --socket-timeout 30 \
+              $COOKIE_OPTION \
+              -f "$QUALITY" \
+              --external-downloader aria2c \
+              --external-downloader-args "-x 16 -s 16 -k 5M --max-connection-per-server=16 --console-log-level=error" \
+              -N 16 \
+              -o "%(title)s.%(ext)s" \
+              "$url" 2>&1 | tee download.log
+            
+            cd ..
+            
+            DL_FILE=$(ls -1 "$DL_DIR" | grep -E '\.(mp4|mkv|webm)$' | head -n1)
+            if [ -z "$DL_FILE" ]; then
+              echo "Download failed for $url"
+              cat "$DL_DIR/download.log" | tail -20
+              rm -rf "$DL_DIR"
+              continue
+            fi
+            echo "Downloaded: $DL_FILE"
+            
+            FILE_SIZE=$(stat -c%s "$DL_DIR/$DL_FILE" 2>/dev/null || stat -f%z "$DL_DIR/$DL_FILE" 2>/dev/null)
+            FILE_SIZE_MB=$((FILE_SIZE / 1048576))
+            echo "File size: ${FILE_SIZE_MB} MB"
+
+            RAND5=$(tr -dc 'a-z' </dev/urandom | head -c5)
+            ZIP_NAME="${DL_FILE}_${RAND5}.zip"
+            
+            # انتقال فایل به پوشه مقصد و زیپ کردن در همانجا
+            cp "$DL_DIR/$DL_FILE" "$RUN_FOLDER/"
+            
+            # رفتن به پوشه مقصد و زیپ کردن
+            cd "$RUN_FOLDER"
+            
+            if [ "$FILE_SIZE_MB" -gt 95 ]; then
+              echo "File larger than 95MB, splitting into parts..."
+              zip -s 95m "$ZIP_NAME" "$DL_FILE"
+              rm -f "$DL_FILE"
+              echo "File split into parts"
+            else
+              echo "File smaller than 95MB, zipping without split..."
+              zip "$ZIP_NAME" "$DL_FILE"
+              rm -f "$DL_FILE"
+            fi
+            
+            # برگشت به پوشه اصلی
+            cd ../..
+            
+            rm -rf "$DL_DIR"
+            echo "Saved to: ${RUN_FOLDER}/${ZIP_NAME}"
+            
+          done < urls.txt
+          
+          echo "All downloads completed!"
+          echo "Files in $RUN_FOLDER:"
+          ls -la "$RUN_FOLDER"
+
+      - name: Upload to direct folder
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git config http.postBuffer 524288000
+
+          if [ -z "$(ls -A direct/)" ]; then
+            echo "No files to upload."
+            exit 0
+          fi
+
+          git add direct/
+          git commit -m "Add run folder [skip ci]" || echo "Nothing to commit"
+
+          RETRIES=5
+          for i in $(seq 1 $RETRIES); do
+            echo "Push attempt $i..."
+            git pull --rebase --autostash origin "${{ github.ref_name }}" || true
+            if git push origin "${{ github.ref_name }}"; then
+              echo "Push succeeded."
+              break
+            else
+              [ $i -lt $RETRIES ] && sleep 3 || echo "Push failed after $RETRIES attempts"
+            fi
+          done
