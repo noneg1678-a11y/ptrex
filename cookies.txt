@@ -2,11 +2,11 @@
 # https://curl.haxx.se/rfc/cookie_spec.html
 # This is a generated file! Do not edit.
 
-.porntrex.com	TRUE	/	FALSE	0	PHPSESSID	4b3b866145cc3c5681f2d328ef080e37
-.porntrex.com	TRUE	/	FALSE	1812937684	_ga	GA1.1.1335729154.1778377568
-porntrex.com	FALSE	/	FALSE	1778982428	confirmed	true
-.porntrex.com	TRUE	/	TRUE	1778464082	kt_ips	35.187.134.164%2C35.187.134.166
-.porntrex.com	TRUE	/	FALSE	1812937684	_ga_LSL6MX3ZB1	GS2.1.s1778377567$o1$g1$t1778377684$j57$l0$h0
-porntrex.com	FALSE	/	FALSE	1778982485	kt_tcookie	1
-porntrex.com	FALSE	/	FALSE	1778399285	___trx2	{"time":1778377685,"pageViews":1,"shown":false}
-porntrex.com	FALSE	/	FALSE	1778399285	___trx3	{"time":1778377685,"pageViews":1,"shown":false}
+.hqporner.com	TRUE	/	FALSE	1812940708	_ga	GA1.1.491351118.1778380708
+.hqporner.com	TRUE	/	TRUE	1809916744	_ym_uid	1778380745743990746
+.hqporner.com	TRUE	/	TRUE	1809916744	_ym_d	1778380745
+.hqporner.com	TRUE	/	TRUE	1778452747	_ym_isad	1
+hqporner.com	FALSE	/	FALSE	1812949132	__suvt	7-d902ff1200ada6aae96eb5e8d5d26ea2
+hqporner.com	FALSE	/	FALSE	1812949132	__nuvt	7-af9fcd66eddbc54124d6f9ecd183a2e0
+.hqporner.com	TRUE	/	FALSE	1812949343	_ga_5H8NSK46F4	GS2.1.s1778387692$o2$g1$t1778389343$j60$l0$h0
+.hqporner.com	TRUE	/	TRUE	1778475800	_ym_hostIndex	0-1%2C1-0
