@@ -1,44 +1,51 @@
-name: Download and Upload File
+name: Download from Mediafire
 
 on:
   workflow_dispatch:
     inputs:
-      direct_url:
-        description: 'لینک مستقیم دانلود فایل'
+      mediafire_link:
+        description: 'لینک مدیافایر فایل مورد نظر'
         required: true
-        type: string
-      filename:
-        description: 'نام فایل (اختیاری - در صورت خالی بودن از لینک استخراج می‌شود)'
-        required: false
         type: string
 
 jobs:
-  download-and-upload:
+  download:
     runs-on: ubuntu-latest
+    
     steps:
-    - name: Checkout Repository
+    - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Extract Filename
+    - name: Get direct download link
       id: extract
       run: |
-        if [ -z "${{ github.event.inputs.filename }}" ]; then
-          FILENAME=$(basename "${{ github.event.inputs.direct_url }}" | sed 's/?.*//')
-        else
-          FILENAME="${{ github.event.inputs.filename }}"
+        MEDIAFIRE_URL="${{ github.event.inputs.mediafire_link }}"
+        
+        # دریافت صفحه مدیافایر
+        PAGE=$(curl -s "$MEDIAFIRE_URL")
+        
+        # استخراج لینک مستقیم دانلود
+        DIRECT_URL=$(echo "$PAGE" | grep -oP 'https://download\d+\.mediafire\.com/[^"\047?]+' | head -1)
+        
+        if [ -z "$DIRECT_URL" ]; then
+          echo "❌ لینک مستقیم پیدا نشد"
+          exit 1
         fi
-        echo "filename=$FILENAME" >> $GITHUB_OUTPUT
+        
+        # استخراج نام فایل
+        FILENAME=$(basename "$DIRECT_URL" | sed 's/?.*//')
+        
+        echo "DIRECT_URL=$DIRECT_URL" >> $GITHUB_ENV
+        echo "FILENAME=$FILENAME" >> $GITHUB_ENV
+        
+        echo "✅ لینک دانلود: $DIRECT_URL"
+        echo "📁 نام فایل: $FILENAME"
 
-    - name: Download File with wget
+    - name: Download file
       run: |
-        wget --tries=3 --timeout=30 --retry-connrefused \
-          -O "${{ steps.extract.outputs.filename }}" \
-          "${{ github.event.inputs.direct_url }}"
-
-    - name: Upload to Repository
-      run: |
-        git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"
-        git add "${{ steps.extract.outputs.filename }}"
-        git commit -m "Upload ${{ steps.extract.outputs.filename }} via workflow" || echo "No changes to commit"
-        git push
+        echo "⏳ در حال دانلود فایل..."
+        wget --tries=5 --retry-connrefused --timeout=30 \
+          -O "$FILENAME" \
+          "$DIRECT_URL"
+        
+        if [ -f "$FI
