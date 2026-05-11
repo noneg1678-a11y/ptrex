@@ -1,120 +1,72 @@
-name: Download from Mediafire
-
-on:
-  workflow_dispatch:
-    inputs:
-      mediafire_link:
-        description: 'لینک مدیافایر فایل مورد نظر'
-        required: true
-        type: string
-
-jobs:
-  download:
-    runs-on: ubuntu-latest
+- name: Split and upload large file
+  run: |
+    # ساخت پوشه با نام بر اساس تاریخ و زمان
+    FOLDER_NAME="mediafire_$(date +'%Y%m%d_%H%M%S')"
+    mkdir -p "$FOLDER_NAME"
     
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    - name: Get direct download link
-      id: extract
-      run: |
-        MEDIAFIRE_URL="${{ github.event.inputs.mediafire_link }}"
-        
-        PAGE=$(curl -s "$MEDIAFIRE_URL")
-        
-        DIRECT_URL=$(echo "$PAGE" | grep -oP 'https://download\d+\.mediafire\.com/[^"'\''\?]+' | head -1)
-        
-        if [ -z "$DIRECT_URL" ]; then
-          echo "لینک مستقیم پیدا نشد"
-          exit 1
-        fi
-        
-        FILENAME=$(basename "$DIRECT_URL" | sed 's/?.*//')
-        
-        echo "DIRECT_URL=$DIRECT_URL" >> $GITHUB_ENV
-        echo "FILENAME=$FILENAME" >> $GITHUB_ENV
-        
-        echo "✅ لینک پیدا شد: $DIRECT_URL"
-
-    - name: Download file
-      run: |
-        echo "در حال دانلود..."
-        wget --tries=5 --retry-connrefused --timeout=60 -O "$FILENAME" "$DIRECT_URL"
-        
-        if [ -f "$FILENAME" ]; then
-          SIZE=$(du -h "$FILENAME" | cut -f1)
-          echo "✅ دانلود شد - حجم: $SIZE"
-        else
-          echo "❌ دانلود ناموفق"
-          exit 1
-        fi
-
-    - name: Create multi-part zip and upload
-      run: |
-        # ساخت پوشه با نام بر اساس تاریخ و زمان
-        FOLDER_NAME="mediafire_$(date +'%Y%m%d_%H%M%S')"
-        mkdir -p "$FOLDER_NAME"
-        
-        # انتقال فایل به پوشه
-        mv "$FILENAME" "$FOLDER_NAME/"
-        
-        # رفتن به داخل پوشه
-        cd "$FOLDER_NAME"
-        
-        # ساخت ZIP چندتکه با استفاده از zip (حجم هر تکه 90 مگ)
-        echo "📦 در حال ساخت ZIP چندتکه..."
-        zip -s 90m -r "${FILENAME%.*}.zip" "$FILENAME"
-        
-        # حذف فایل اصلی (چون داخل زیپ هست)
-        rm "$FILENAME"
-        
-        # برگشت به دایرکتوری اصلی
-        cd ..
-        
-        git config user.name "github-actions[bot]"
-        git config user.email "actions@github.com"
-        
-        git add "$FOLDER_NAME/"
-        git commit -m "Add multi-part zip of $FILENAME (90MB parts)" || echo "✅ بدون تغییر"
-        git push
-        
-        echo "🎉 فایل به صورت ZIP چندتکه در پوشه $FOLDER_NAME آپلود شد"
-        echo ""
-        echo "🔧 برای استخراج فایل روی سیستم خودتان:"
-        echo "   1. همه فایل‌های .z0, .z1, .z2, ... و فایل .zip را دانلود کنید"
-        echo "   2. دستور زیر را اجرا کنید:"
-        echo "   zip -s 0 ${FILENAME%.*}.zip --out ${FILENAME%.*}_full.zip"
-        echo "   3. فایل نهایی را Extract کنید: unzip ${FILENAME%.*}_full.zip"
-        echo ""
-        echo "📝 مثال واقعی برای فایل شما:"
-        echo "   zip -s 0 EMT_V3.37.00_Setup_1-April-2024-OKFile.in.rar.zip --out full_file.zip"
-        echo "   unzip full_file.zip"
-
-    - name: Create merge script (optional)
-      run: |
-        FOLDER_NAME="mediafire_$(date +'%Y%m%d_%H%M%S')"
-        cd "$FOLDER_NAME"
-        
-        # ساخت فایل اسکریپت برای合并 خودکار
-        cat > merge.sh << 'EOF'
-#!/bin/bash
-# اسکریپت خودکار برای چسباندن تکه‌های ZIP
-echo "🔧 در حال چسباندن تکه‌های ZIP..."
-ZIP_FILE=$(ls *.zip 2>/dev/null | head -1)
-if [ -n "$ZIP_FILE" ]; then
-    zip -s 0 "$ZIP_FILE" --out merged_file.zip
-    echo "✅ فایل merged_file.zip ساخته شد"
-    echo "▶️ حالا اجرا کن: unzip merged_file.zip"
-else
-    echo "❌ فایل ZIP پیدا نشد"
-fi
+    FILE_SIZE=$(stat -c%s "$FILENAME")
+    MAX_SIZE=$((90 * 1024 * 1024))  # 90 مگابایت
+    
+    if [ $FILE_SIZE -gt $MAX_SIZE ]; then
+      echo "📦 فایل بزرگ است ($(du -h "$FILENAME" | cut -f1))، در حال اسپلیت کردن..."
+      
+      # روش صحیح: اول فایل رو زیپ کن، بعد اسپلیت کن
+      zip -0 "$FILENAME.zip" "$FILENAME"
+      
+      # اسپلیت فایل زیپ شده به تکه‌های 90 مگ
+      split -b 90m -d "$FILENAME.zip" "$FOLDER_NAME/${FILENAME}.part"
+      
+      # پاک کردن فایل‌های موقت
+      rm "$FILENAME.zip"
+      rm "$FILENAME"
+      
+      # تغییر نام تکه‌ها برای خوانایی بهتر
+      cd "$FOLDER_NAME"
+      part_num=1
+      for part in ${FILENAME}.part*; do
+        mv "$part" "${FILENAME}.part$(printf "%03d" $part_num)"
+        ((part_num++))
+      done
+      
+      # ایجاد فایل راهنما برای合并
+      cat > "HOW_TO_MERGE.txt" << EOF
+برای合并 این فایل اسپلیت شده:
+1. همه فایل‌های .part*** را در یک پوشه قرار دهید
+2. دستور زیر را اجرا کنید:
+   cat ${FILENAME}.part* > ${FILENAME}.zip
+3. سپس فایل زیپ را اکسترکت کنید:
+   unzip ${FILENAME}.zip
+یا مستقیماً:
+   cat ${FILENAME}.part* > ${FILENAME}.zip && unzip ${FILENAME}.zip
 EOF
-        
-        chmod +x merge.sh
-        cd ..
-        git add "$FOLDER_NAME/merge.sh"
-        git commit -m "Add merge script for multi-part zip" || echo "✅ بدون تغییر"
-        git push
-        
-        echo "📜 فایل merge.sh هم در پوشه اضافه شد که خودکار تکه‌ها رو می‌چسبونه"
+      
+      echo "✅ فایل به $(ls ${FILENAME}.part* | wc -l) تکه تقسیم شد"
+      cd ..
+    else
+      echo "📁 فایل کوچکتر از 90 مگ، انتقال بدون اسپلیت"
+      mv "$FILENAME" "$FOLDER_NAME/"
+    fi
+    
+    git config user.name "github-actions[bot]"
+    git config user.email "actions@github.com"
+    
+    git add "$FOLDER_NAME/"
+    git commit -m "Add $FILENAME from Mediafire to $FOLDER_NAME" || echo "✅ بدون تغییر"
+    
+    # پوش کردن تدریجی برای فایل‌های بزرگ
+    for i in {1..5}; do
+      git push && break
+      echo "تلاش مجدد در 5 ثانیه..."
+      sleep 5
+    done
+    
+    echo "🎉 فایل در پوشه $FOLDER_NAME آپلود شد"
+    
+    # نمایش راهنمای اکسترکت
+    if [ $FILE_SIZE -gt $MAX_SIZE ]; then
+      echo ""
+      echo "🔓 دستورالعمل合并:"
+      echo "   cd $FOLDER_NAME"
+      echo "   cat ${FILENAME}.part* > ${FILENAME}.zip"
+      echo "   unzip ${FILENAME}.zip"
+    fi
