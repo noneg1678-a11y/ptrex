@@ -1,0 +1,64 @@
+name: Download from Mediafire
+
+on:
+  workflow_dispatch:
+    inputs:
+      mediafire_link:
+        description: 'لینک مدیافایر'
+        required: true
+        type: string
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Get direct link
+      id: extract
+      run: |
+        PAGE=$(curl -s "${{ github.event.inputs.mediafire_link }}")
+        DIRECT_URL=$(echo "$PAGE" | grep -oP 'https://download\d+\.mediafire\.com/[^"'\''\?]+' | head -1)
+        
+        if [ -z "$DIRECT_URL" ]; then
+          echo "❌ لینک مستقیم پیدا نشد"
+          exit 1
+        fi
+        
+        echo "DIRECT_URL=$DIRECT_URL" >> $GITHUB_ENV
+
+    - name: Download
+      run: |
+        wget --tries=5 --retry-connrefused -O "original_file" "$DIRECT_URL"
+        
+        SIZE=$(stat -c%s "original_file")
+        SIZE_MB=$((SIZE / 1048576))
+        
+        echo "📦 حجم فایل: ${SIZE_MB} MB"
+        
+        if [ $SIZE_MB -gt 90 ]; then
+          echo "🔪 فایل بزرگه، تکه تکه می‌کنم..."
+          zip -s 90m "Dl.zip" "original_file"
+          rm -f "original_file"
+          echo "✅ تبدیل به Dl.zip, Dl.z01, Dl.z02, ... شد"
+        else
+          mv "original_file" "Dl.zip"
+          echo "✅ فایل کوچک، همون Dl.zip ذخیره شد"
+        fi
+
+    - name: Upload
+      run: |
+        FOLDER="mediafire_$(date +'%Y%m%d_%H%M%S')"
+        mkdir -p "$FOLDER"
+        mv Dl.* "$FOLDER/" 2>/dev/null || true
+        
+        git config user.name "github-actions[bot]"
+        git config user.email "actions@github.com"
+        
+        git add "$FOLDER/"
+        git commit -m "Add Mediafire file" || echo "بدون تغییر"
+        git push
+        
+        echo "🎯 فایل(ها) توی $FOLDER آپلود شدن"
