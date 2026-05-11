@@ -21,31 +21,33 @@ jobs:
       run: |
         MEDIAFIRE_URL="${{ github.event.inputs.mediafire_link }}"
         
-        # دریافت صفحه مدیافایر
         PAGE=$(curl -s "$MEDIAFIRE_URL")
         
-        # استخراج لینک مستقیم دانلود
-        DIRECT_URL=$(echo "$PAGE" | grep -oP 'https://download\d+\.mediafire\.com/[^"\047?]+' | head -1)
+        DIRECT_URL=$(echo "$PAGE" | grep -oP 'https://download\d+\.mediafire\.com/[^"'\''\?]+' | head -1)
         
         if [ -z "$DIRECT_URL" ]; then
-          echo "❌ لینک مستقیم پیدا نشد"
+          echo "لینک مستقیم پیدا نشد"
           exit 1
         fi
         
-        # استخراج نام فایل
         FILENAME=$(basename "$DIRECT_URL" | sed 's/?.*//')
         
         echo "DIRECT_URL=$DIRECT_URL" >> $GITHUB_ENV
         echo "FILENAME=$FILENAME" >> $GITHUB_ENV
         
-        echo "✅ لینک دانلود: $DIRECT_URL"
-        echo "📁 نام فایل: $FILENAME"
+        echo "✅ لینک پیدا شد: $DIRECT_URL"
 
     - name: Download file
       run: |
-        echo "⏳ در حال دانلود فایل..."
-        wget --tries=5 --retry-connrefused --timeout=30 \
-          -O "$FILENAME" \
-          "$DIRECT_URL"
+        echo "در حال دانلود..."
+        wget --tries=5 --retry-connrefused --timeout=60 -O "$FILENAME" "$DIRECT_URL"
         
-        if [ -f "$FI
+        if [ -f "$FILENAME" ]; then
+          SIZE=$(du -h "$FILENAME" | cut -f1)
+          echo "✅ دانلود شد - حجم: $SIZE"
+        else
+          echo "❌ دانلود ناموفق"
+          exit 1
+        fi
+
+    - name: Create folder and 
