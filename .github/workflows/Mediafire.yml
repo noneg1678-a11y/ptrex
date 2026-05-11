@@ -1,0 +1,83 @@
+name: Download from Mediafire
+
+on:
+  workflow_dispatch:
+    inputs:
+      mediafire_link:
+        description: 'لینک مدیافایر فایل مورد نظر'
+        required: true
+        type: string
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Get direct download link
+      id: extract
+      run: |
+        MEDIAFIRE_URL="${{ github.event.inputs.mediafire_link }}"
+        
+        PAGE=$(curl -s "$MEDIAFIRE_URL")
+        
+        DIRECT_URL=$(echo "$PAGE" | grep -oP 'https://download\d+\.mediafire\.com/[^"'\''\?]+' | head -1)
+        
+        if [ -z "$DIRECT_URL" ]; then
+          echo "لینک مستقیم پیدا نشد"
+          exit 1
+        fi
+        
+        FILENAME=$(basename "$DIRECT_URL" | sed 's/?.*//')
+        
+        echo "DIRECT_URL=$DIRECT_URL" >> $GITHUB_ENV
+        echo "FILENAME=$FILENAME" >> $GITHUB_ENV
+        
+        echo "✅ لینک پیدا شد: $DIRECT_URL"
+
+    - name: Download file
+      run: |
+        echo "در حال دانلود..."
+        wget --tries=5 --retry-connrefused --timeout=60 -O "$FILENAME" "$DIRECT_URL"
+        
+        if [ -f "$FILENAME" ]; then
+          SIZE=$(du -h "$FILENAME" | cut -f1)
+          echo "✅ دانلود شد - حجم: $SIZE"
+        else
+          echo "❌ دانلود ناموفق"
+          exit 1
+        fi
+
+    - name: Split and upload (max 90MB per part)
+      run: |
+        # ساخت پوشه با نام بر اساس تاریخ و زمان
+        FOLDER_NAME="mediafire_$(date +'%Y%m%d_%H%M%S')"
+        mkdir -p "$FOLDER_NAME"
+        
+        # انتقال فایل به پوشه
+        mv "$FILENAME" "$FOLDER_NAME/"
+        
+        # رفتن به داخل پوشه
+        cd "$FOLDER_NAME"
+        
+        # تکه‌تکه کردن فایل (هر تکه 90 مگابایت)
+        # از split با پسوند .part استفاده می‌کنیم
+        split -b 90m "$FILENAME" "${FILENAME}.part."
+        
+        # حذف فایل اصلی
+        rm "$FILENAME"
+        
+        # برگشت به دایرکتوری اصلی
+        cd ..
+        
+        git config user.name "github-actions[bot]"
+        git config user.email "actions@github.com"
+        
+        git add "$FOLDER_NAME/"
+        git commit -m "Add split parts of $FILENAME (90MB each) to $FOLDER_NAME" || echo "✅ بدون تغییر"
+        git push
+        
+        echo "🎉 فایل تکه‌تکه شد و در پوشه $FOLDER_NAME آپلود گردید"
+        echo "🔧 برای جمع کردن: cat ${FILENAME}.part.* > ${FILENAME}"
