@@ -50,7 +50,7 @@ jobs:
           exit 1
         fi
 
-    - name: Split and upload (max 90MB per part)
+    - name: Create multi-part zip and upload
       run: |
         # ساخت پوشه با نام بر اساس تاریخ و زمان
         FOLDER_NAME="mediafire_$(date +'%Y%m%d_%H%M%S')"
@@ -62,11 +62,11 @@ jobs:
         # رفتن به داخل پوشه
         cd "$FOLDER_NAME"
         
-        # تکه‌تکه کردن فایل (هر تکه 90 مگابایت)
-        # از split با پسوند .part استفاده می‌کنیم
-        split -b 90m "$FILENAME" "${FILENAME}.part."
+        # ساخت ZIP چندتکه با استفاده از zip (حجم هر تکه 90 مگ)
+        echo "📦 در حال ساخت ZIP چندتکه..."
+        zip -s 90m -r "${FILENAME%.*}.zip" "$FILENAME"
         
-        # حذف فایل اصلی
+        # حذف فایل اصلی (چون داخل زیپ هست)
         rm "$FILENAME"
         
         # برگشت به دایرکتوری اصلی
@@ -76,8 +76,45 @@ jobs:
         git config user.email "actions@github.com"
         
         git add "$FOLDER_NAME/"
-        git commit -m "Add split parts of $FILENAME (90MB each) to $FOLDER_NAME" || echo "✅ بدون تغییر"
+        git commit -m "Add multi-part zip of $FILENAME (90MB parts)" || echo "✅ بدون تغییر"
         git push
         
-        echo "🎉 فایل تکه‌تکه شد و در پوشه $FOLDER_NAME آپلود گردید"
-        echo "🔧 برای جمع کردن: cat ${FILENAME}.part.* > ${FILENAME}"
+        echo "🎉 فایل به صورت ZIP چندتکه در پوشه $FOLDER_NAME آپلود شد"
+        echo ""
+        echo "🔧 برای استخراج فایل روی سیستم خودتان:"
+        echo "   1. همه فایل‌های .z0, .z1, .z2, ... و فایل .zip را دانلود کنید"
+        echo "   2. دستور زیر را اجرا کنید:"
+        echo "   zip -s 0 ${FILENAME%.*}.zip --out ${FILENAME%.*}_full.zip"
+        echo "   3. فایل نهایی را Extract کنید: unzip ${FILENAME%.*}_full.zip"
+        echo ""
+        echo "📝 مثال واقعی برای فایل شما:"
+        echo "   zip -s 0 EMT_V3.37.00_Setup_1-April-2024-OKFile.in.rar.zip --out full_file.zip"
+        echo "   unzip full_file.zip"
+
+    - name: Create merge script (optional)
+      run: |
+        FOLDER_NAME="mediafire_$(date +'%Y%m%d_%H%M%S')"
+        cd "$FOLDER_NAME"
+        
+        # ساخت فایل اسکریپت برای合并 خودکار
+        cat > merge.sh << 'EOF'
+#!/bin/bash
+# اسکریپت خودکار برای چسباندن تکه‌های ZIP
+echo "🔧 در حال چسباندن تکه‌های ZIP..."
+ZIP_FILE=$(ls *.zip 2>/dev/null | head -1)
+if [ -n "$ZIP_FILE" ]; then
+    zip -s 0 "$ZIP_FILE" --out merged_file.zip
+    echo "✅ فایل merged_file.zip ساخته شد"
+    echo "▶️ حالا اجرا کن: unzip merged_file.zip"
+else
+    echo "❌ فایل ZIP پیدا نشد"
+fi
+EOF
+        
+        chmod +x merge.sh
+        cd ..
+        git add "$FOLDER_NAME/merge.sh"
+        git commit -m "Add merge script for multi-part zip" || echo "✅ بدون تغییر"
+        git push
+        
+        echo "📜 فایل merge.sh هم در پوشه اضافه شد که خودکار تکه‌ها رو می‌چسبونه"
