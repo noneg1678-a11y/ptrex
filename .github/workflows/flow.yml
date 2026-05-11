@@ -1,0 +1,87 @@
+name: Download and Split Large File
+
+on:
+  workflow_dispatch:
+    inputs:
+      mediafire_link:
+        description: 'لینک مدیافایر فایل مورد نظر'
+        required: true
+        type: string
+
+jobs:
+  download-and-split:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Get direct download link
+      id: extract
+      run: |
+        MEDIAFIRE_URL="${{ github.event.inputs.mediafire_link }}"
+        PAGE=$(curl -s "$MEDIAFIRE_URL")
+        DIRECT_URL=$(echo "$PAGE" | grep -oP 'https://download\d+\.mediafire\.com/[^"?]+' | head -1)
+        
+        if [ -z "$DIRECT_URL" ]; then
+          echo "❌ لینک مستقیم پیدا نشد"
+          exit 1
+        fi
+        
+        ORIGINAL_FILENAME=$(basename "$DIRECT_URL" | sed 's/?.*//')
+        
+        echo "DIRECT_URL=$DIRECT_URL" >> $GITHUB_ENV
+        echo "ORIGINAL_FILENAME=$ORIGINAL_FILENAME" >> $GITHUB_ENV
+        
+        echo "✅ لینک پیدا شد: $DIRECT_URL"
+
+    - name: Download original file
+      run: |
+        echo "⏳ در حال دانلود فایل..."
+        wget --tries=5 --retry-connrefused --timeout=120 -O "$ORIGINAL_FILENAME" "$DIRECT_URL"
+        
+        if [ -f "$ORIGINAL_FILENAME" ]; then
+          SIZE=$(du -h "$ORIGINAL_FILENAME" | cut -f1)
+          echo "✅ دانلود شد - حجم: $SIZE"
+        else
+          echo "❌ دانلود ناموفق"
+          exit 1
+        fi
+
+    - name: Split file into 90MB parts
+      run: |
+        FOLDER_NAME="split_$(date +'%Y%m%d_%H%M%S')"
+        mkdir -p "$FOLDER_NAME"
+        
+        BASENAME=$(basename "$ORIGINAL_FILENAME")
+        BASENAME_NO_EXT="${BASENAME%.*}"
+        
+        echo "✂️ در حال تقسیم فایل..."
+        split -b 90m "$ORIGINAL_FILENAME" "$FOLDER_NAME/${BASENAME_NO_EXT}.part."
+        
+        PART_COUNT=$(ls -1 "$FOLDER_NAME" | wc -l)
+        echo "✅ فایل به $PART_COUNT تکه تقسیم شد"
+        
+        cat > "$FOLDER_NAME/merge.sh" << 'EOF'
+#!/bin/bash
+BASENAME_NO_EXT=$1
+ORIGINAL_FILENAME=$2
+cat ${BASENAME_NO_EXT}.part.* > "$ORIGINAL_FILENAME"
+echo "✅ فایل اصلی بازسازی شد: $ORIGINAL_FILENAME"
+EOF
+        
+        chmod +x "$FOLDER_NAME/merge.sh"
+        
+        echo "FOLDER_NAME=$FOLDER_NAME" >> $GITHUB_ENV
+        echo "BASENAME_NO_EXT=$BASENAME_NO_EXT" >> $GITHUB_ENV
+
+    - name: Upload split parts to repository
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "actions@github.com"
+        
+        git add "$FOLDER_NAME/"
+        git commit -m "Split file into 90MB parts" || echo "✅ بدون تغییر"
+        git push
+        
+        echo "🎉 تکه‌های فایل آپلود شدند"
